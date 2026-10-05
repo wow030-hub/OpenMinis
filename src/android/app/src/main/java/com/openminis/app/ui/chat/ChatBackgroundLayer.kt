@@ -21,6 +21,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import androidx.compose.foundation.Image
@@ -88,32 +89,40 @@ class ChatBackgroundStore private constructor(context: Context) {
          * the stored path, or null if the image could not be read.
          */
         fun saveToAppStorage(context: Context, source: Uri): String? {
-            val resolver = context.contentResolver
-            val probe = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            resolver.openInputStream(source)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, probe)
-            } ?: return null
-            val rawW = probe.outWidth
-            val rawH = probe.outHeight
-            if (rawW <= 0 || rawH <= 0) return null
-
-            var sample = 1
-            while (maxOf(rawW / sample, rawH / sample) > MAX_BITMAP_EDGE) sample *= 2
-            val decode = BitmapFactory.Options().apply { inSampleSize = sample }
-
+            // ImageDecoder (API 28+) handles HEIC/HEIF and bounds-decoding in one
+            // step, avoiding OOM on 12MP+ photos. BitmapFactory fallback for 26-27.
             val dest = File(context.filesDir, WALLPAPER_FILE)
-            var bitmap: Bitmap? = null
-            try {
-                resolver.openInputStream(source)?.use { stream ->
-                    bitmap = BitmapFactory.decodeStream(stream, null, decode)
+            return try {
+                val bitmap: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val decoder = ImageDecoder.createSource(context.contentResolver, source)
+                    val info = ImageDecoder.decodeHeader(decoder)
+                    val longSide = maxOf(info.size.width, info.size.height)
+                    if (longSide > MAX_BITMAP_EDGE) {
+                        val scale = MAX_BITMAP_EDGE.toFloat() / longSide
+                        decoder.setTargetSize(
+                            (info.size.width * scale).toInt().coerceAtLeast(1),
+                            (info.size.height * scale).toInt().coerceAtLeast(1),
+                        )
+                    }
+                    decoder.decodeBitmap()
+                } else {
+                    val resolver = context.contentResolver
+                    val probe = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    resolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it, null, probe) }
+                        ?: return null
+                    var sample = 1
+                    while (maxOf(probe.outWidth / sample, probe.outHeight / sample) > MAX_BITMAP_EDGE) sample *= 2
+                    val decode = BitmapFactory.Options().apply { inSampleSize = sample }
+                    resolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it, null, decode) }
+                        ?: return null
                 }
-                if (bitmap == null) return null
                 FileOutputStream(dest).use { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
                 }
-                return dest.absolutePath
-            } finally {
-                bitmap?.recycle()
+                dest.absolutePath
+            } catch (e: Throwable) {
+                // HEIC-unsupported / oversized / I/O all land here; caller toasts the failure.
+                null
             }
         }
 
