@@ -98,14 +98,18 @@ class ChatBackgroundStore private constructor(context: Context) {
                     // the decode is a static call and the ImageDecoder arrives as the
                     // listener's first parameter.
                     val src = ImageDecoder.createSource(context.contentResolver, source)
-                    ImageDecoder.decodeBitmap(src) { _, info, size ->
+                    // The listener's 3rd parameter is ImageDecoder.Source (not a mutable
+                    // size array) — resize via decoder.setTargetSize instead.
+                    ImageDecoder.decodeBitmap(src) { decoder, info, _ ->
                         val w = info.size.width
                         val h = info.size.height
                         val longSide = maxOf(w, h)
                         if (longSide > MAX_BITMAP_EDGE) {
                             val scale = MAX_BITMAP_EDGE.toFloat() / longSide
-                            size[0] = (w.toFloat() * scale).toInt().coerceAtLeast(1)
-                            size[1] = (h.toFloat() * scale).toInt().coerceAtLeast(1)
+                            decoder.setTargetSize(
+                                (w.toFloat() * scale).toInt().coerceAtLeast(1),
+                                (h.toFloat() * scale).toInt().coerceAtLeast(1),
+                            )
                         }
                     }
                 } else {
