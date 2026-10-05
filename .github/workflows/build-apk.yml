@@ -1,1 +1,81 @@
+name: Build Android APK
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Go 1.27
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+
+      - name: Install Android command line tools
+        run: |
+          mkdir -p "$HOME/android-sdk/cmdline-tools"
+          cd "$HOME"
+          curl -fsSLO https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip
+          unzip -q commandlinetools-linux-16111833_latest.zip
+          mv cmdline-tools "$HOME/android-sdk/cmdline-tools/latest"
+          echo "ANDROID_HOME=$HOME/android-sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> "$GITHUB_ENV"
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept licenses and install NDK + SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager \
+            "ndk;28.2.13676358" \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          "$(go env GOPATH)/bin/gomobile" init
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Copy provider customization template
+        run: cp src/android/app/provider-customization.properties.example \
+                src/android/app/provider-customization.properties
+
+      - name: Build native deps (proot, sandbox rootfs, rclone)
+        run: |
+          ./deps/build_proot.sh
+          ./scripts/prepare_android_sandbox.sh
+          ./deps/build_rclone_android.sh
+          mkdir -p src/android/app/libs
+          cp deps/build/rclone/rclone.aar src/android/app/libs/
+
+      - name: Build APK
+        working-directory: src/android
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minis-chat-background-apk
+          path: src/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
