@@ -3277,12 +3277,12 @@ fun ChatScreen(
                                     showChatMenu = false
                                     chatBackgroundLauncher.launch(
                                         androidx.activity.result.PickVisualMediaRequest(
-                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly(),
+                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
                                         )
                                     )
                                 },
                                 leadingIcon = {
-                                    MenuItemIcon(androidx.compose.material.icons.outlined.PhotoLibrary)
+                                    MenuItemIcon(Icons.Default.PhotoLibrary)
                                 },
                             )
                             if (chatBackgroundUri != null) {
