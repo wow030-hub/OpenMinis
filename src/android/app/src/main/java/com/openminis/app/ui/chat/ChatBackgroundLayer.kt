@@ -56,6 +56,7 @@ private const val WALLPAPER_FILE = "chat_background.png"
 private const val MAX_BITMAP_EDGE = 1400
 
 class ChatBackgroundStore private constructor(context: Context) {
+    private val appContext: Context = context.applicationContext
     private val prefs: SharedPreferences =
         context.getSharedPreferences("chat_background_prefs", Context.MODE_PRIVATE)
 
@@ -68,7 +69,7 @@ class ChatBackgroundStore private constructor(context: Context) {
     fun setUri(value: String?) {
         _uri.value = value
         if (value == null) {
-            File(context.filesDir, WALLPAPER_FILE).delete()
+            File(appContext.filesDir, WALLPAPER_FILE).delete()
         }
         prefs.edit().putString("wallpaper_path", value).apply()
     }
@@ -147,7 +148,8 @@ fun ChatBackgroundLayer(
             withContext(Dispatchers.IO) { loadWallpaperBitmap(context, path) }
         }
     }
-    if (image == null) return
+    val bitmap = image
+    if (bitmap == null) return
 
     val glassTint = MaterialTheme.colorScheme.background
     Box(
@@ -156,7 +158,7 @@ fun ChatBackgroundLayer(
             .clipToBounds(),
     ) {
         Image(
-            bitmap = image,
+            bitmap = bitmap,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
