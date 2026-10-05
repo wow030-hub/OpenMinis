@@ -94,19 +94,20 @@ class ChatBackgroundStore private constructor(context: Context) {
             val dest = File(context.filesDir, WALLPAPER_FILE)
             return try {
                 val bitmap: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    val decoder = ImageDecoder.createSource(context.contentResolver, source)
-                    val info = decoder.getInfo()
-                    val w = info.size.width
-                    val h = info.size.height
-                    val longSide = maxOf(w, h)
-                    if (longSide > MAX_BITMAP_EDGE) {
-                        val scale = MAX_BITMAP_EDGE.toFloat() / longSide
-                        decoder.setTargetSize(
-                            (w.toFloat() * scale).toInt().coerceAtLeast(1),
-                            (h.toFloat() * scale).toInt().coerceAtLeast(1),
-                        )
+                    // createSource() returns ImageDecoder.Source, NOT ImageDecoder —
+                    // the decode is a static call and the ImageDecoder arrives as the
+                    // listener's first parameter.
+                    val src = ImageDecoder.createSource(context.contentResolver, source)
+                    ImageDecoder.decodeBitmap(src) { _, info, size ->
+                        val w = info.size.width
+                        val h = info.size.height
+                        val longSide = maxOf(w, h)
+                        if (longSide > MAX_BITMAP_EDGE) {
+                            val scale = MAX_BITMAP_EDGE.toFloat() / longSide
+                            size[0] = (w.toFloat() * scale).toInt().coerceAtLeast(1)
+                            size[1] = (h.toFloat() * scale).toInt().coerceAtLeast(1)
+                        }
                     }
-                    decoder.decodeBitmap()
                 } else {
                     val resolver = context.contentResolver
                     val probe = BitmapFactory.Options().apply { inJustDecodeBounds = true }
