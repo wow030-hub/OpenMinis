@@ -95,15 +95,16 @@ class ChatBackgroundStore private constructor(context: Context) {
             return try {
                 val bitmap: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     val decoder = ImageDecoder.createSource(context.contentResolver, source)
-                    decoder.setOnHeaderDecodedListener { _, info, size ->
-                        val w = info.size.width
-                        val h = info.size.height
-                        val longSide = maxOf(w, h)
-                        if (longSide > MAX_BITMAP_EDGE) {
-                            val scale = MAX_BITMAP_EDGE.toFloat() / longSide
-                            size[0] = (w.toFloat() * scale).toInt().coerceAtLeast(1)
-                            size[1] = (h.toFloat() * scale).toInt().coerceAtLeast(1)
-                        }
+                    val info = decoder.getInfo()
+                    val w = info.size.width
+                    val h = info.size.height
+                    val longSide = maxOf(w, h)
+                    if (longSide > MAX_BITMAP_EDGE) {
+                        val scale = MAX_BITMAP_EDGE.toFloat() / longSide
+                        decoder.setTargetSize(
+                            (w.toFloat() * scale).toInt().coerceAtLeast(1),
+                            (h.toFloat() * scale).toInt().coerceAtLeast(1),
+                        )
                     }
                     decoder.decodeBitmap()
                 } else {
