@@ -69,6 +69,33 @@ jobs:
           mkdir -p src/android/app/libs
           cp deps/build/rclone/rclone.aar src/android/app/libs/
 
+      - name: Set up permanent signing keystore
+        run: |
+          mkdir -p "$HOME/.android" keystore
+          if [ -f keystore/debug.keystore ]; then
+            cp keystore/debug.keystore "$HOME/.android/debug.keystore"
+            echo "USING committed permanent keystore"
+          else
+            keytool -genkeypair -v -keystore keystore/debug.keystore \
+              -storepass android -keypass android -alias AndroidDebugKey \
+              -keyalg RSA -keysize 2048 -validity 10000 -storetype PKCS12 -noprompt \
+              -dname "CN=Android Debug,O=Android,C=US"
+            cp keystore/debug.keystore "$HOME/.android/debug.keystore"
+            git config user.email "actions@users.noreply.github.com"
+            git config user.name "GitHub Actions"
+            git add keystore/debug.keystore
+            git commit -m "chore: add permanent signing keystore" || true
+            git push origin HEAD:main || echo "WARN: keystore push failed — it is also uploaded as an artifact"
+            echo "GENERATED and committed permanent keystore"
+          fi
+
+      - name: Upload signing keystore artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-keystore
+          path: keystore/debug.keystore
+          if-no-files-found: error
+
       - name: Build APK
         working-directory: src/android
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
