@@ -578,9 +578,16 @@ fun ChatScreen(
     val chatBackgroundLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        if (uri != null) {
-            ChatBackgroundStore.saveToAppStorage(context, uri)
-                ?.let { chatBackgroundStore.setUri(it) }
+        if (uri == null) {
+            android.widget.Toast.makeText(context, "未选择图片", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            val saved = ChatBackgroundStore.saveToAppStorage(context, uri)
+            if (saved != null) {
+                chatBackgroundStore.setUri(saved)
+                android.widget.Toast.makeText(context, "聊天背景已设置", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                android.widget.Toast.makeText(context, "背景保存失败，请换一张图片", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
     }
     // ================================================================
