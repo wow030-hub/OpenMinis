@@ -75,6 +75,22 @@ android {
         }
     }
 
+    // [CustomChatBackground] Sign with the keystore committed at
+    // <repo>/keystore/debug.keystore. The built-in `debug` signing config
+    // silently regenerates its own key whenever ~/.android/debug.keystore does
+    // not match exactly what AGP expects — which made every CI build carry a
+    // DIFFERENT signature. This config consumes the committed file directly, so
+    // the cloud build and a local re-sign share one identity.
+    signingConfigs {
+        create("permanent") {
+            storeFile = rootProject.file("../../keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            storeType = "PKCS12"
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             buildConfigField("boolean", "DEV_TOOLS", "true")
@@ -94,7 +110,7 @@ android {
             isProfileable = true
             matchingFallbacks += listOf("debug")
             buildConfigField("boolean", "DEV_TOOLS", "true")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("permanent")
         }
         release {
             // [OpenMinis#363] Produce native-debug-symbols.zip alongside the
@@ -116,7 +132,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("permanent")
         }
     }
 
