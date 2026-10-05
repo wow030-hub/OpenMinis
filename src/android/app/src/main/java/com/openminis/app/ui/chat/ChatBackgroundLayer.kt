@@ -192,7 +192,6 @@ fun ChatBackgroundLayer(
 /** Decode the wallpaper from either a plain path or a content/file URI. */
 private fun loadWallpaperBitmap(context: Context, path: String): ImageBitmap? {
     var bitmap: Bitmap? = null
-    try {
         val probe = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         if (path.startsWith("content://") || path.startsWith("file://")) {
             val uri = Uri.parse(path)
@@ -224,7 +223,4 @@ private fun loadWallpaperBitmap(context: Context, path: String): ImageBitmap? {
             }
         }
         return bitmap?.asImageBitmap()
-    } finally {
-        bitmap?.recycle()
-    }
 }
