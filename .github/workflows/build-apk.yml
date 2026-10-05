@@ -46,6 +46,7 @@ jobs:
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
           sdkmanager \
             "ndk;28.2.13676358" \
+            "ndk;27.0.12077973" \
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0"
@@ -58,8 +59,7 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Copy provider customization template
-        run: cp src/android/app/provider-customization.properties.example \
-                src/android/app/provider-customization.properties
+        run: cp src/android/app/provider-customization.properties.example src/android/app/provider-customization.properties
 
       - name: Build native deps (proot, sandbox rootfs, rclone)
         run: |
