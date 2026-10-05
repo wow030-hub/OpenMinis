@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.VideoFile
@@ -569,6 +570,22 @@ fun ChatScreen(
     onEditProviderClick: (instanceId: String) -> Unit = {},
 ) {
     val context = LocalContext.current
+
+    // === [CustomChatBackground] 自定义聊天背景（iOS 液态玻璃） ===
+    // 图片用系统相册选择器选取，缩放后拷进 app 自己的 filesDir 持久化，
+    // 因为照片选择器只给临时读取权限，重启后会失效。
+    val chatBackgroundStore = remember { ChatBackgroundStore.getInstance(context) }
+    val chatBackgroundUri by chatBackgroundStore.uri.collectAsState()
+    val chatBackgroundLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            ChatBackgroundStore.saveToAppStorage(context, uri)
+                ?.let { chatBackgroundStore.setUri(it) }
+        }
+    }
+    // ================================================================
+
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     // Scoped to a process-level per-session ViewModelStore (ChatViewModelStore)
@@ -3254,6 +3271,34 @@ fun ChatScreen(
                                 },
                             )
                             MinisMenuDivider()
+                            // [CustomChatBackground] 聊天背景：相册选图
+                            DropdownMenuItem(
+                                text = { Text("聊天背景") },
+                                onClick = {
+                                    showChatMenu = false
+                                    chatBackgroundLauncher.launch(
+                                        androidx.activity.result.PickVisualMediaRequest(
+                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly(),
+                                        )
+                                    )
+                                },
+                                leadingIcon = {
+                                    MenuItemIcon(androidx.compose.material.icons.outlined.PhotoLibrary)
+                                },
+                            )
+                            if (chatBackgroundUri != null) {
+                                DropdownMenuItem(
+                                    text = { Text("清除聊天背景") },
+                                    onClick = {
+                                        showChatMenu = false
+                                        chatBackgroundStore.setUri(null)
+                                    },
+                                    leadingIcon = {
+                                        MenuItemIcon(Icons.Outlined.Delete)
+                                    },
+                                )
+                            }
+                            MinisMenuDivider()
                             // Clear Chat (iOS parity, red)
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.chat_menu_clear_chat), color = MaterialTheme.colorScheme.error) },
@@ -3503,6 +3548,12 @@ fun ChatScreen(
                 .imePadding()
                 .onGloballyPositioned { chatPaneWidthPx = it.size.width },
         ) {
+            // [CustomChatBackground] 背景图层：垫在消息列表之下，自身不可点按，
+            // 不抢焦点，不吞事件。
+            ChatBackgroundLayer(
+                uriString = chatBackgroundUri,
+                modifier = Modifier.align(Alignment.TopStart),
+            )
         Column(
             modifier = Modifier.fillMaxSize(),
         ) {
