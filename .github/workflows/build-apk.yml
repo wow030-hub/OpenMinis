@@ -83,7 +83,7 @@ jobs:
             cp keystore/debug.keystore "$HOME/.android/debug.keystore"
             git config user.email "actions@users.noreply.github.com"
             git config user.name "GitHub Actions"
-            git add keystore/debug.keystore
+            git add -f keystore/debug.keystore
             git commit -m "chore: add permanent signing keystore" || true
             git push origin HEAD:main || echo "WARN: keystore push failed — it is also uploaded as an artifact"
             echo "GENERATED and committed permanent keystore"
