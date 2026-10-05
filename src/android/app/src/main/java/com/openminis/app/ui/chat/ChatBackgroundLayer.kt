@@ -29,8 +29,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableStateFlow
-import androidx.compose.runtime.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -139,7 +139,7 @@ fun ChatBackgroundLayer(
     scrimAlpha: Float = 0.45f,
 ) {
     val context = LocalContext.current
-    val image: ImageBitmap? = produceState<ImageBitmap?>(
+    val image by produceState<ImageBitmap?>(
         initialValue = null,
         key1 = uriString,
     ) {
@@ -163,7 +163,7 @@ fun ChatBackgroundLayer(
                 .fillMaxSize()
                 .then(
                     if (Build.VERSION.SDK_INT >= 31 && blurRadius > 0f) {
-                        Modifier.blur(blurRadius, blurRadius)
+                        Modifier.blur(blurRadius.dp)
                     } else {
                         Modifier
                     },
