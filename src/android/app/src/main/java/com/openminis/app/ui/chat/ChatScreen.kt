@@ -41,7 +41,6 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.VideoFile
@@ -3294,7 +3293,7 @@ fun ChatScreen(
                                         chatBackgroundStore.setUri(null)
                                     },
                                     leadingIcon = {
-                                        MenuItemIcon(Icons.Outlined.Delete)
+                                        MenuItemIcon(Icons.Default.Delete)
                                     },
                                 )
                             }
@@ -3552,7 +3551,7 @@ fun ChatScreen(
             // 不抢焦点，不吞事件。
             ChatBackgroundLayer(
                 uriString = chatBackgroundUri,
-                modifier = Modifier.align(Alignment.TopStart),
+                modifier = Modifier,
             )
         Column(
             modifier = Modifier.fillMaxSize(),
