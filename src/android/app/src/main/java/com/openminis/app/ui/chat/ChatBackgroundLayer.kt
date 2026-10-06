@@ -120,8 +120,11 @@ class ChatBackgroundStore private constructor(context: Context) {
                     var sample = 1
                     while (maxOf(probe.outWidth / sample, probe.outHeight / sample) > MAX_BITMAP_EDGE) sample *= 2
                     val decode = BitmapFactory.Options().apply { inSampleSize = sample }
-                    resolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it, null, decode) }
-                        ?: return null
+                    applyExifRotation(
+                        resolver.openInputStream(source)?.use {
+                            BitmapFactory.decodeStream(it, null, decode)
+                        } ?: return null,
+                    )
                 }
                 FileOutputStream(dest).use { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
@@ -131,6 +134,22 @@ class ChatBackgroundStore private constructor(context: Context) {
                 // HEIC-unsupported / oversized / I/O all land here; caller toasts the failure.
                 null
             }
+        }
+
+
+        /**
+         * BitmapFactory on API 26-27 ignores the EXIF orientation tag, so a
+         * photo taken sideways renders sideways in the wallpaper. API 28+
+         * applies it inside ImageDecoder, which is why only this fallback
+         * branch needs the fix.
+         */
+        private fun applyExifRotation(bitmap: Bitmap): Bitmap {
+            val rotation = bitmap.rotationDegrees
+            if (rotation == 0) return bitmap
+            val matrix = android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }
+            return android.graphics.Bitmap.createBitmap(
+                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true,
+            )
         }
 
         /** Delete the stored wallpaper file if one exists. */
