@@ -2425,7 +2425,9 @@ private fun RenderBlock(block: MdBlock) {
                             .padding(horizontal = 12.dp, vertical = 4.dp),
                     ) {
                         Text(
-                            text = block.code,
+                            text = MarkdownParseCaches.codeHighlight(
+                                block.code, block.language, colors.codeText,
+                            ),
                             fontSize = BaseFontSize * 0.85f,
                             fontFamily = FontFamily.Monospace,
                             color = colors.codeText,
@@ -3754,6 +3756,84 @@ internal object StreamRenderProfiler {
     }
 }
 
+// ─── [T-chat-code-highlight] Fenced code block syntax highlighting ──────────
+//
+// Ported idea from Operit's ui/common/markdown/EnhancedCodeBlock.kt: highlight
+// a code line and cache it under "language + line", so a block that GROWS during
+// streaming (and any block scrolled back to afterwards) only tokenises the new
+// lines — every line already seen is a cache hit. Lines are then spliced into
+// the single AnnotatedString Compose's Text needs.
+//
+// The tokenizer is deliberately one pass and language-agnostic: comment /
+// string / number / identifier, coloured against the active chat palette. It is
+// line-based by construction, so a block comment opened on one line and closed
+// on a later one is not tracked across lines — the payoff here is readability,
+// not grammar fidelity.
+private val highlightKeywordColor = Color(0xFF82AAFF)
+private val highlightStringColor = Color(0xFFB08060)
+private val highlightCommentColor = Color(0xFF7A8A6E)
+private val highlightNumberColor = Color(0xFFD69E58)
+private val highlightTypeColor = Color(0xFF5FBFB0)
+
+private val highlightTypeNames = setOf(
+    "int", "float", "double", "long", "short", "byte", "char", "bool", "boolean",
+    "void", "String", "Int", "Float", "Double", "Boolean", "Char", "Any", "Unit",
+    "List", "Map", "Set", "Array", "Optional", "HashMap", "ArrayList", "Vector",
+    "Object", "Number", "Function", "Error", "Promise", "Result", "Context",
+)
+
+private val highlightKeywords = setOf(
+    "if", "else", "for", "while", "do", "return", "break", "continue", "switch",
+    "case", "default", "try", "catch", "finally", "throw", "throws", "new", "delete",
+    "typeof", "instanceof", "class", "interface", "enum", "struct", "func", "fun",
+    "fn", "def", "async", "await", "import", "export", "from", "as", "package",
+    "module", "use", "pub", "private", "public", "protected", "internal", "static",
+    "final", "const", "let", "var", "val", "mut", "true", "false", "null", "nil",
+    "None", "True", "False", "self", "this", "super", "in", "is", "not", "and",
+    "or", "with", "yield", "lambda", "override", "abstract", "sealed", "data",
+    "object", "companion", "suspend", "inline", "when", "where", "guard", "defer",
+    "match", "elif", "pass", "raise", "del", "global", "nonlocal",
+)
+
+private val highlightTokenRegex = Regex(
+    """(//[^\n]*|#[^\n]*|/\*[\s\S]*?\*/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\b\d+\.?\d*\b)|(\b[a-zA-Z_]\w*\b)|([^\s\w]+|\s+)"""
+)
+
+private fun highlightLineTokens(line: String, base: Color): AnnotatedString =
+    buildAnnotatedString {
+        for (match in highlightTokenRegex.findAll(line)) {
+            when {
+                match.groups[1] != null -> {
+                    pushStyle(SpanStyle(color = highlightCommentColor))
+                    append(match.value)
+                    pop()
+                }
+                match.groups[2] != null -> {
+                    pushStyle(SpanStyle(color = highlightStringColor))
+                    append(match.value)
+                    pop()
+                }
+                match.groups[3] != null -> {
+                    pushStyle(SpanStyle(color = highlightNumberColor))
+                    append(match.value)
+                    pop()
+                }
+                match.groups[4] != null -> {
+                    val word = match.value
+                    val color = when {
+                        word in highlightKeywords -> highlightKeywordColor
+                        word in highlightTypeNames -> highlightTypeColor
+                        else -> base
+                    }
+                    pushStyle(SpanStyle(color = color))
+                    append(word)
+                    pop()
+                }
+                else -> append(match.value)
+            }
+        }
+    }
+
 private object MarkdownParseCaches {
     // [T-android-parse-lru-char-budget] (#759) Per-cache character budget,
     // replacing the previous fixed entry count of 768.
@@ -3853,6 +3933,52 @@ private object MarkdownParseCaches {
         budget = CHAR_BUDGET_PER_CACHE,
         sizer = { k, _ -> k.length },
     )
+
+    // ─── [T-chat-code-highlight] Code block highlight caches ─────────────────
+    //
+    // Two layers. The LINE cache is the payoff: a code block whose text grows
+    // every streaming tick (or one revisited while scrolling) re-tokenises only
+    // the lines it has never seen. The BLOCK cache stops re-splicing an
+    // unchanged block on recomposition. Both key on (color, language, text) so
+    // a theme switch cannot serve a stale palette from cache.
+    private val codeLineLru = Lru<Triple<Color, String, String>, AnnotatedString>(
+        budget = CHAR_BUDGET_PER_CACHE,
+        sizer = { k, _ -> k.third.length },
+    )
+    private val codeBlockLru = Lru<Triple<Color, String, String>, AnnotatedString>(
+        budget = CHAR_BUDGET_PER_CACHE,
+        sizer = { k, _ -> k.third.length },
+    )
+
+    /**
+     * Highlight [code] for [language] with [base] as the default text colour.
+     *
+     * Returns the identical text to [code] with color spans on top, which is
+     * what the code block's Text node needs. `language` empty means "no
+     * language tag" and yields a plain [AnnotatedString] — same as rendering
+     * the raw string, so untagged blocks are untouched.
+     */
+    fun codeHighlight(code: String, language: String, base: Color): AnnotatedString {
+        if (code.isEmpty() || language.isEmpty()) return AnnotatedString(code)
+        val blockKey = Triple(base, language, code)
+        synchronized(codeBlockLru) { codeBlockLru[blockKey] }?.let { return it }
+
+        val parts = code.split('\n').map { line ->
+            val lineKey = Triple(base, language, line)
+            synchronized(codeLineLru) {
+                codeLineLru[lineKey]
+                    ?: highlightLineTokens(line, base).also { codeLineLru[lineKey] = it }
+            }
+        }
+        val computed = buildAnnotatedString {
+            parts.forEachIndexed { index, part ->
+                append(part)
+                if (index != parts.lastIndex) append('\n')
+            }
+        }
+        synchronized(codeBlockLru) { codeBlockLru[blockKey] = computed }
+        return computed
+    }
 
     // Double-checked get: the lock is held only for map access, never during a
     // parse — a slow parse on Default must not block a main-thread hit on a
