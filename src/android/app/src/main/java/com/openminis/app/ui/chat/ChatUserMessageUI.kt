@@ -300,6 +300,8 @@ internal fun UserMessageBubble(
     onCompactAbove: (() -> Unit)? = null,
     onWithdraw: (() -> Unit)? = null,
     onPreviewFile: (Uri, String) -> Unit = { _, _ -> },
+    // Bubble nine-slice wallpaper config — optional, passed from ChatScreen.
+    bubbleNineSliceConfig: BubbleImageStyleConfig = BubbleImageStyleConfig.NONE,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val isQueued = message.isQueued
@@ -428,16 +430,45 @@ internal fun UserMessageBubble(
                                 isStreaming = false,
                                 stableKey = "user:${message.id}",
                             ) {
-                                Text(
-                                    text = message.content,
-                                    color = textColor,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.5.sp),
-                                    modifier = bubbleModifier
-                                        .background(bubbleBg, shape)
-                                        .clip(shape)
-                                        .then(dashedStroke)
-                                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                                )
+                                if (bubbleNineSliceConfig.enabled && !isQueued) {
+                                    // Tiling wallpaper inside the user bubble
+                                    // (Operit-style). The bitmap is the same
+                                    // wallpaper the ChatBackgroundLayer uses;
+                                    // it is decoded lazily below via produceState
+                                    // so a list scroll doesn't pay for it here.
+                                    BubbleNineSliceBackground(
+                                        bitmap = bubbleNineSliceConfig.bitmap,
+                                        config = bubbleNineSliceConfig,
+                                        modifier = bubbleModifier,
+                                        shape = shape,
+                                        scrimAlpha = 0.22f,
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(shape)
+                                                .then(dashedStroke)
+                                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                                        ) {
+                                            Text(
+                                                text = message.content,
+                                                color = textColor,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.5.sp),
+                                                modifier = Modifier.fillMaxWidth(),
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Text(
+                                        text = message.content,
+                                        color = textColor,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.5.sp),
+                                        modifier = bubbleModifier
+                                            .background(bubbleBg, shape)
+                                            .clip(shape)
+                                            .then(dashedStroke)
+                                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    )
+                                }
                             }
                         }
                         if (isQueued && onWithdraw != null) {
