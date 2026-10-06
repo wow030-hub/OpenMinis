@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.LocalConfiguration
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -68,8 +67,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -2373,11 +2370,6 @@ private fun RenderBlock(block: MdBlock) {
             // the block width. Scoped per block, so re-parsing a message
             // resets it rather than leaking across blocks.
             var autoWrap by remember { mutableStateOf(false) }
-            // Operit sizes the cap from screenHeightDp. A fixed 400dp can
-            // swallow half a small or landscape viewport.
-            val maxCodeBlockHeightDp = minOf(
-                400f, LocalConfiguration.current.screenHeightDp * 0.55f,
-            )
             if (copied) {
                 LaunchedEffect(Unit) {
                     kotlinx.coroutines.delay(1500)
@@ -2447,7 +2439,7 @@ private fun RenderBlock(block: MdBlock) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = maxCodeBlockHeightDp.dp)
+                        .heightIn(max = 400.dp)
                         .verticalScroll(vScroll)
                         .padding(bottom = 8.dp),
                 ) {
