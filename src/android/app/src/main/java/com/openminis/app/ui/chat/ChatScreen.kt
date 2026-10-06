@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.AudioFile
@@ -575,6 +576,18 @@ fun ChatScreen(
     // 因为照片选择器只给临时读取权限，重启后会失效。
     val chatBackgroundStore = remember { ChatBackgroundStore.getInstance(context) }
     val chatBackgroundUri by chatBackgroundStore.uri.collectAsState()
+    // 壁纸只解码一次，给全屏聊天背景和每个气泡气泡复用，避免在 LazyColumn 的
+    // 每个 item 里重复跑 BitmapFactory（那样每滑一行就 IO 一次）。
+    val bubbleWallpaperBitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
+        initialValue = null,
+        key1 = chatBackgroundUri,
+    ) {
+        value = chatBackgroundUri?.let { path ->
+            withContext(Dispatchers.IO) { loadWallpaperBitmap(context, path) }
+        }
+    }
+    val chatBackgroundEnabled by chatBackgroundStore.bubbleEnabled.collectAsState()
+    val chatBackgroundMode by chatBackgroundStore.chatBackgroundMode.collectAsState()
     val chatBackgroundLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -3303,6 +3316,48 @@ fun ChatScreen(
                                         MenuItemIcon(Icons.Default.Delete)
                                     },
                                 )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (chatBackgroundEnabled) {
+                                                "气泡贴图（九宫格）：关"
+                                            } else {
+                                                "气泡贴图（九宫格）：开"
+                                            },
+                                        )
+                                    },
+                                    onClick = {
+                                        showChatMenu = false
+                                        chatBackgroundStore.setBubbleNineSliceEnabled(!chatBackgroundEnabled)
+                                    },
+                                    leadingIcon = {
+                                        MenuItemIcon(Icons.Default.Layers)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (chatBackgroundMode == ChatBackgroundMode.TILED) {
+                                                "聊天背景模式：九宫格平铺"
+                                            } else {
+                                                "聊天背景模式：毛玻璃"
+                                            },
+                                        )
+                                    },
+                                    onClick = {
+                                        showChatMenu = false
+                                        chatBackgroundStore.setChatBackgroundMode(
+                                            if (chatBackgroundMode == ChatBackgroundMode.TILED) {
+                                                ChatBackgroundMode.BLUR
+                                            } else {
+                                                ChatBackgroundMode.TILED
+                                            },
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        MenuItemIcon(Icons.Default.GridView)
+                                    },
+                                )
                             }
                             MinisMenuDivider()
                             // Clear Chat (iOS parity, red)
@@ -3558,6 +3613,7 @@ fun ChatScreen(
             // 不抢焦点，不吞事件。
             ChatBackgroundLayer(
                 uriString = chatBackgroundUri,
+                mode = chatBackgroundMode,
                 modifier = Modifier,
             )
         Column(
@@ -3846,7 +3902,7 @@ fun ChatScreen(
                                     // threw ConcurrentModificationException from
                                     // a later frame's SubList.equals. Copying
                                     // severs the view so it can't comodify.
-                                    buildFlatChatItems(msgs.take(splitIdx), sessionId, enableWaifuBubble = true)
+                                    buildFlatChatItems(msgs.take(splitIdx), sessionId)
                                 }
                                 val buildMs = (System.nanoTime() - tBuildStart) / 1_000_000
                                 frozenRows = rows
@@ -3922,7 +3978,7 @@ fun ChatScreen(
                             } else {
                                 withContext(Dispatchers.Default) {
                                     val merged = mergeStreamingOverlay(msgs, stream)
-                                    buildFlatChatItems(merged, null, fromIndex = splitIdx, seedKeys = frozenKeys, enableWaifuBubble = true)
+                                    buildFlatChatItems(merged, null, fromIndex = splitIdx, seedKeys = frozenKeys)
                                 }
                             }
                             flatItems = if (liveRows.isEmpty()) frozenRows else frozenRows + liveRows
@@ -4059,7 +4115,6 @@ fun ChatScreen(
                     is FlatChatItem.AssistantHeader -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantText -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantMarkdownBlock -> grayedMap[originalMessageId(messageId)] == true
-                    is FlatChatItem.WaifuBubble -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantThinking -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantToolUse -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantInfo -> false  // system rows never grayed
@@ -4543,6 +4598,10 @@ fun ChatScreen(
                                         )
                                     }
                                 },
+                                // Bubble nine-slice config — the user picks a wallpaper once
+                                // (chat menu → 聊天背景); the config then tiles it onto every
+                                // bubble instead of the solid tertiarySystemFill colour.
+                                bubbleNineSliceConfig = bubbleNineSliceConfig(chatBackgroundStore, bubbleWallpaperBitmap),
                             )
                             } // close UserBubble SideEffect + UserMessageBubble block
                             is FlatChatItem.AssistantHeader -> AssistantHeader()
@@ -4593,37 +4652,6 @@ fun ChatScreen(
                                             shardId = "mdblock:${item.parentBlockId}:${item.blockIndex}",
                                         ),
                                     )
-                                }
-                            }
-                            is FlatChatItem.WaifuBubble -> BoundsTrackedBlock(
-                                messageId = item.messageId,
-                                slotKey = "waifu:${item.messageId}:${item.segmentIndex}",
-                                markdown = item.messageMarkdown,
-                            ) {
-                                LargeContentGuard(
-                                    content = item.segmentText,
-                                    isStreaming = item.isStreaming,
-                                    stableKey = "waifu:${item.messageId}:${item.segmentIndex}",
-                                ) {
-                                    SideEffect {
-                                        selectionController.rememberMessageMarkdown(item.messageId, item.messageMarkdown)
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .padding(vertical = 2.dp, end = 48.dp)
-                                            .clip(RoundedCornerShape(16.dp))
-                                            .background(ChatColors.inputBg)
-                                            .padding(12.dp),
-                                    ) {
-                                        MarkdownBlock(
-                                            rawText = item.segmentText,
-                                            isStreaming = item.isStreaming,
-                                            shardId = TextShardId(
-                                                messageId = item.messageId,
-                                                shardId = "waifu:${item.messageId}:${item.segmentIndex}",
-                                            ),
-                                        )
-                                    }
                                 }
                             }
                             is FlatChatItem.AssistantThinking -> {
