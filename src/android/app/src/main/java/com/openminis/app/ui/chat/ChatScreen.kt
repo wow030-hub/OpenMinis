@@ -3846,7 +3846,7 @@ fun ChatScreen(
                                     // threw ConcurrentModificationException from
                                     // a later frame's SubList.equals. Copying
                                     // severs the view so it can't comodify.
-                                    buildFlatChatItems(msgs.take(splitIdx), sessionId)
+                                    buildFlatChatItems(msgs.take(splitIdx), sessionId, enableWaifuBubble = true)
                                 }
                                 val buildMs = (System.nanoTime() - tBuildStart) / 1_000_000
                                 frozenRows = rows
@@ -3922,7 +3922,7 @@ fun ChatScreen(
                             } else {
                                 withContext(Dispatchers.Default) {
                                     val merged = mergeStreamingOverlay(msgs, stream)
-                                    buildFlatChatItems(merged, null, fromIndex = splitIdx, seedKeys = frozenKeys)
+                                    buildFlatChatItems(merged, null, fromIndex = splitIdx, seedKeys = frozenKeys, enableWaifuBubble = true)
                                 }
                             }
                             flatItems = if (liveRows.isEmpty()) frozenRows else frozenRows + liveRows
@@ -4059,6 +4059,7 @@ fun ChatScreen(
                     is FlatChatItem.AssistantHeader -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantText -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantMarkdownBlock -> grayedMap[originalMessageId(messageId)] == true
+                    is FlatChatItem.WaifuBubble -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantThinking -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantToolUse -> grayedMap[originalMessageId(messageId)] == true
                     is FlatChatItem.AssistantInfo -> false  // system rows never grayed
@@ -4592,6 +4593,37 @@ fun ChatScreen(
                                             shardId = "mdblock:${item.parentBlockId}:${item.blockIndex}",
                                         ),
                                     )
+                                }
+                            }
+                            is FlatChatItem.WaifuBubble -> BoundsTrackedBlock(
+                                messageId = item.messageId,
+                                slotKey = "waifu:${item.messageId}:${item.segmentIndex}",
+                                markdown = item.messageMarkdown,
+                            ) {
+                                LargeContentGuard(
+                                    content = item.segmentText,
+                                    isStreaming = item.isStreaming,
+                                    stableKey = "waifu:${item.messageId}:${item.segmentIndex}",
+                                ) {
+                                    SideEffect {
+                                        selectionController.rememberMessageMarkdown(item.messageId, item.messageMarkdown)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(vertical = 2.dp, end = 48.dp)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(ChatColors.inputBg)
+                                            .padding(12.dp),
+                                    ) {
+                                        MarkdownBlock(
+                                            rawText = item.segmentText,
+                                            isStreaming = item.isStreaming,
+                                            shardId = TextShardId(
+                                                messageId = item.messageId,
+                                                shardId = "waifu:${item.messageId}:${item.segmentIndex}",
+                                            ),
+                                        )
+                                    }
                                 }
                             }
                             is FlatChatItem.AssistantThinking -> {
