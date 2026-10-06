@@ -430,6 +430,35 @@ internal sealed class FlatChatItem {
             h = h * 31 + messageIsStreaming.hashCode()
             h = h * 31 + rawText.length
             h = h * 31 + messageMarkdown.length
+        h = h * 31 + messageMarkdown.length
+        return h
+    }
+}
+
+    class WaifuBubble(
+        val messageId: String,
+        val segmentIndex: Int,
+        val segmentText: String,
+        val isLastSegment: Boolean,
+        val messageIsStreaming: Boolean,
+        val messageMarkdown: String,
+    ) : FlatChatItem() {
+        override val key = "waifu:$messageId:$segmentIndex"
+        override val contentType = "waifu"
+        val isStreaming: Boolean get() = messageIsStreaming && isLastSegment
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is WaifuBubble) return false
+            return messageId == other.messageId &&
+                segmentIndex == other.segmentIndex &&
+                segmentText.length == other.segmentText.length &&
+                messageIsStreaming == other.messageIsStreaming
+        }
+        override fun hashCode(): Int {
+            var h = messageId.hashCode()
+            h = h * 31 + segmentIndex
+            h = h * 31 + segmentText.length
+            h = h * 31 + messageIsStreaming.hashCode()
             return h
         }
     }
@@ -635,6 +664,11 @@ internal fun buildFlatChatItems(
     // prefix so the defensive key-collision suffixing behaves exactly as a
     // single full build would.
     seedKeys: Set<String> = emptySet(),
+    // [T-waifu-bubble] When true, frozen assistant text blocks are split
+    // into per-sentence bubbles (Operit Waifu mode). Streaming messages
+    // and blocks with markdown syntax (code fences, tables, LaTeX) are
+    // unaffected.
+    enableWaifuBubble: Boolean = false,
 ): List<FlatChatItem> {
     val out = mutableListOf<FlatChatItem>()
     val usedKeys = if (seedKeys.isEmpty()) mutableSetOf() else seedKeys.toMutableSet()
@@ -661,6 +695,14 @@ internal fun buildFlatChatItems(
                 rawText = item.rawText,
                 blockIndex = item.blockIndex,
                 isLastBlockOfMessage = item.isLastBlockOfMessage,
+                messageIsStreaming = item.messageIsStreaming,
+                messageMarkdown = item.messageMarkdown,
+            )
+            is FlatChatItem.WaifuBubble -> FlatChatItem.WaifuBubble(
+                messageId = "${item.messageId}#$n",
+                segmentIndex = item.segmentIndex,
+                segmentText = item.segmentText,
+                isLastSegment = item.isLastSegment,
                 messageIsStreaming = item.messageIsStreaming,
                 messageMarkdown = item.messageMarkdown,
             )
@@ -783,6 +825,30 @@ internal fun buildFlatChatItems(
                 "text" -> {
                     if (block.content.isNotEmpty()) {
                         val isLastText = index == lastTextIdx
+                        // [T-waifu-bubble] Split frozen plain text into per-sentence bubbles.
+                        // Only applies to non-streaming messages without markdown block syntax
+                        // (code fences, tables, LaTeX). Each sentence becomes its own bubble.
+                        if (enableWaifuBubble && !message.isStreaming) {
+                            val hasBlockSyntax = block.content.contains("```") ||
+                                block.content.contains("|---") ||
+                                block.content.contains("$$")
+                            if (!hasBlockSyntax) {
+                                val sentences = splitIntoSentences(block.content)
+                                if (sentences.size > 1) {
+                                    sentences.forEachIndexed { segIdx, sentence ->
+                                        out.add(dedupe(FlatChatItem.WaifuBubble(
+                                            messageId = message.id,
+                                            segmentIndex = segIdx,
+                                            segmentText = sentence,
+                                            isLastSegment = segIdx == sentences.lastIndex,
+                                            messageIsStreaming = false,
+                                            messageMarkdown = joinedMarkdown,
+                                        )))
+                                    }
+                                    return@forEachIndexed
+                                }
+                            }
+                        }
                         // Pattern A: split this text block's content into
                         // independent markdown fragments so each becomes its
                         // own LazyColumn item. Frozen prefix fragments are
@@ -975,8 +1041,21 @@ internal fun buildFlatChatItems(
         message.tokenUsage?.let { u ->
             if (!message.isStreaming) {
                 out.add(dedupe(FlatChatItem.AssistantUsage(message.id, u, message.completedAt)))
-            }
         }
-    }
+
     return out
+}
+
+/**
+ * [T-waifu-bubble] Split text into sentence segments at Chinese/English
+ * punctuation boundaries. Ported from Operit WaifuMessageProcessor's
+ * SENTENCE_SPLIT_REGEX. Protects against splitting inside quoted text.
+ */
+internal fun splitIntoSentences(text: String): List<String> {
+    if (text.isBlank()) return emptyList()
+    return text.split(
+        Regex(
+            """(?<=[。！？～~～])(?![\"'”’」』])|(?<=[!?])(?![\"'”’」』])|(?<=\.)(?![.\d\"'”’」』])|(?<=[…](?![…]))"""
+        )
+    ).map { it.trim() }.filter { it.isNotEmpty() }
 }
