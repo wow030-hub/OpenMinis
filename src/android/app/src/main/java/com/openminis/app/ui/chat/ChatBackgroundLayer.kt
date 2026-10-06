@@ -124,6 +124,7 @@ class ChatBackgroundStore private constructor(context: Context) {
                         resolver.openInputStream(source)?.use {
                             BitmapFactory.decodeStream(it, null, decode)
                         } ?: return null,
+                        exifOrientationDegrees(context, source),
                     )
                 }
                 FileOutputStream(dest).use { out ->
@@ -139,14 +140,34 @@ class ChatBackgroundStore private constructor(context: Context) {
 
         /**
          * BitmapFactory on API 26-27 ignores the EXIF orientation tag, so a
-         * photo taken sideways renders sideways in the wallpaper. API 28+
-         * applies it inside ImageDecoder, which is why only this fallback
-         * branch needs the fix.
+         * photo taken sideways lands sideways in the wallpaper. API 28+ applies
+         * it inside ImageDecoder, which is why only this fallback branch needs
+         * the fix.
+         *
+         * The tag is read straight from the source bytes with ExifInterface
+         * rather than Bitmap.getRotationDegrees(): that accessor is not in the
+         * compile-time android.jar, so EXIF is the portable route.
          */
-        private fun applyExifRotation(bitmap: Bitmap): Bitmap {
-            val rotation = bitmap.rotationDegrees
-            if (rotation == 0) return bitmap
-            val matrix = android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }
+        private fun exifOrientationDegrees(context: Context, source: Uri): Float =
+            try {
+                val normal = android.media.ExifInterface.ORIENTATION_NORMAL
+                context.contentResolver.openInputStream(source)?.use { stream ->
+                    when (android.media.ExifInterface(stream)
+                        .getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, normal)) {
+                        android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                        android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                        android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                        else -> 0f
+                    }
+                } ?: 0f
+            } catch (e: Throwable) {
+                0f
+            }
+
+        /** Rotate [bitmap] in place by [degrees]; a no-op at 0. */
+        private fun applyExifRotation(bitmap: Bitmap, degrees: Float): Bitmap {
+            if (degrees == 0f) return bitmap
+            val matrix = android.graphics.Matrix().apply { postRotate(degrees) }
             return android.graphics.Bitmap.createBitmap(
                 bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true,
             )
