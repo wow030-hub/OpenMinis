@@ -1041,8 +1041,9 @@ internal fun buildFlatChatItems(
         message.tokenUsage?.let { u ->
             if (!message.isStreaming) {
                 out.add(dedupe(FlatChatItem.AssistantUsage(message.id, u, message.completedAt)))
+            }
         }
-
+    }
     return out
 }
 
