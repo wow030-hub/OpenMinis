@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.LocalConfiguration
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircleFilled
@@ -66,6 +68,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -2364,6 +2368,16 @@ private fun RenderBlock(block: MdBlock) {
         is MdBlock.CodeBlock -> {
             val clipboardManager = LocalClipboardManager.current
             var copied by remember { mutableStateOf(false) }
+            // [T-android-code-autowrap] Operit's SwapHoriz: long lines
+            // either scroll sideways (default, terminal-like) or fold to
+            // the block width. Scoped per block, so re-parsing a message
+            // resets it rather than leaking across blocks.
+            var autoWrap by remember { mutableStateOf(false) }
+            // Operit sizes the cap from screenHeightDp. A fixed 400dp can
+            // swallow half a small or landscape viewport.
+            val maxCodeBlockHeightDp = minOf(
+                400f, LocalConfiguration.current.screenHeightDp * 0.55f,
+            )
             if (copied) {
                 LaunchedEffect(Unit) {
                     kotlinx.coroutines.delay(1500)
@@ -2375,7 +2389,16 @@ private fun RenderBlock(block: MdBlock) {
                     .fillMaxWidth()
                     .padding(bottom = 8.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(colors.codeBg),
+                    .background(colors.codeBg)
+                    // A long block otherwise announces as that many
+                    // separate strings; collapse to one unit that names
+                    // the language.
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = if (block.language.isEmpty())
+                            "代码块"
+                        else
+                            "代码块，语言：${block.language}"
+                    },
             ) {
                 // Header row: language label + copy button
                 Row(
@@ -2389,6 +2412,15 @@ private fun RenderBlock(block: MdBlock) {
                         fontSize = 11.sp,
                         color = MdCodeLangColor,
                         modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        imageVector = Icons.Default.SwapHoriz,
+                        contentDescription = if (autoWrap) "自动换行" else "单行显示",
+                        tint = if (autoWrap) Color(0xFF34C759) else Color.White.copy(alpha = 0.4f),
+                        modifier = Modifier
+                            .size(16.dp)
+                            .padding(end = 4.dp)
+                            .clickable { autoWrap = !autoWrap },
                     )
                     Icon(
                         imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
@@ -2415,14 +2447,24 @@ private fun RenderBlock(block: MdBlock) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 400.dp)
+                        .heightIn(max = maxCodeBlockHeightDp.dp)
                         .verticalScroll(vScroll)
                         .padding(bottom = 8.dp),
                 ) {
+                    // fillMaxWidth only when wrapping: it bounds the Text
+                    // width so softWrap has something to fold against. The
+                    // non-wrap branch keeps the exact shipped modifier chain
+                    // so horizontal scroll cannot regress.
                     Box(
-                        modifier = Modifier
-                            .horizontalScroll(hScroll)
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = if (autoWrap) {
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        } else {
+                            Modifier
+                                .horizontalScroll(hScroll)
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        },
                     ) {
                         Text(
                             text = MarkdownParseCaches.codeHighlight(
@@ -2432,6 +2474,7 @@ private fun RenderBlock(block: MdBlock) {
                             fontFamily = FontFamily.Monospace,
                             color = colors.codeText,
                             lineHeight = BaseLineHeight * 0.9f,
+                            softWrap = autoWrap,
                         )
                     }
                 }
